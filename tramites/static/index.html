@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mesa de Trámites · Comercial Andina</title>
+<!-- Responsable: Grupo 12 · Frontend NovaSoft · v0.1 -->
+<style>
+  :root { --tinta:#1f2a33; --marca:#355e3b; --fondo:#f2f4f1; --papel:#fff; --borde:#d3d9d0; --nota:#5d6a5f; color-scheme: light; }
+  @media (prefers-color-scheme: dark) { :root { --tinta:#e4e9e2; --marca:#5c9466; --fondo:#141914; --papel:#1d241d; --borde:#344034; --nota:#9aa79b; color-scheme: dark; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:"Segoe UI", Roboto, Arial, sans-serif; color:var(--tinta); background:var(--fondo); }
+  header { background:var(--marca); color:#fff; padding:14px 20px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; }
+  header h1 { margin:0; font-size:1.2rem; font-weight:600; }
+  main { max-width:1000px; margin:0 auto; padding:20px; display:grid; gap:16px; }
+  section { background:var(--papel); border:1px solid var(--borde); border-radius:6px; padding:16px; }
+  h2 { font-size:1rem; margin:0 0 12px; }
+  input, select, button, textarea { font:inherit; color:inherit; background:var(--papel); padding:8px 10px; border:1px solid var(--borde); border-radius:4px; }
+  button { background:var(--marca); color:#fff; border-color:var(--marca); cursor:pointer; }
+  button.chico { padding:3px 8px; font-size:.85rem; }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline:3px solid #e0a526; outline-offset:1px; }
+  .fila { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .tabla { overflow-x:auto; }
+  table { border-collapse:collapse; width:100%; font-size:.9rem; }
+  th, td { border-bottom:1px solid var(--borde); padding:6px 8px; text-align:left; }
+  .oculto { display:none; }
+  #msg { font-weight:600; min-height:1.2em; margin:0; }
+  .nota { color:var(--nota); font-size:.85rem; }
+</style>
+</head>
+<body>
+<header><h1>Mesa de Trámites</h1><span id="sesion"></span></header>
+<main>
+  <p id="msg" role="status"></p>
+
+  <section id="login">
+    <h2>Iniciar sesión con tu cuenta corporativa</h2>
+    <div class="fila">
+      <input id="codigo" placeholder="Código de trabajador (ej. T015)">
+      <input id="clave" type="password" placeholder="Contraseña">
+      <button id="entrar">Iniciar sesión</button>
+    </div>
+  </section>
+
+  <div id="app" class="oculto" style="display:grid; gap:16px">
+    <section>
+      <h2>Registrar un trámite</h2>
+      <div class="fila">
+        <select id="tipo"></select>
+        <input id="detalle" placeholder="Detalle del trámite" size="40">
+        <button id="registrar">Registrar trámite</button>
+      </div>
+    </section>
+    <section>
+      <h2>Mis trámites</h2>
+      <p class="nota">Incluye los que registraste y los que te asignaron para atender.</p>
+      <div class="tabla"><table id="tramites"></table></div>
+    </section>
+    <section>
+      <h2>Trabajadores destacados</h2>
+      <div class="tabla"><table id="destacados"></table></div>
+    </section>
+  </div>
+</main>
+<script>
+  const $ = id => document.getElementById(id);
+  let yo = null, tipos = {};
+
+  async function api(ruta, datos) {
+    const r = await fetch(ruta, datos ? { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(datos) } : {});
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || j.mensaje_usuario);
+    return j;
+  }
+
+  $('entrar').onclick = async () => {
+    try {
+      yo = await api('/api/login', { codigo: $('codigo').value });
+      $('login').classList.add('oculto');
+      $('app').classList.remove('oculto');
+      $('sesion').textContent = yo.nombre + ' · ' + yo.cargo;
+      tipos = await api('/api/tipos');
+      $('tipo').innerHTML = Object.entries(tipos).map(([k, t]) => `<option value="${k}">${t.nombre}</option>`).join('');
+      refrescar();
+    } catch (e) { $('msg').textContent = 'Error: ' + e.message; }
+  };
+
+  $('registrar').onclick = async () => {
+    try {
+      const r = await api('/api/tramites', { tipo: $('tipo').value, detalle: $('detalle').value, solicitante: yo.codigo });
+      $('msg').textContent = 'Trámite registrado: N.° ' + r.id;
+      $('detalle').value = '';
+      refrescar();
+    } catch (e) { $('msg').textContent = 'Error: ' + e.message; }
+  };
+
+  async function cambiar(id, estado) {
+    try {
+      await api(`/api/tramites/${id}/estado`, { codigo: yo.codigo, estado });
+      $('msg').textContent = `Trámite N.° ${id}: ${estado}`;
+      refrescar();
+    } catch (e) { $('msg').textContent = 'Error: ' + e.message; }
+  }
+
+  async function refrescar() {
+    const ts = await api('/api/tramites?codigo=' + yo.codigo);
+    $('tramites').innerHTML = ts.length
+      ? '<tr><th>N.°</th><th>Tipo</th><th>Detalle</th><th>Solicitante</th><th>Responsable</th><th>Estado</th><th>Vence</th><th>Acción</th></tr>' +
+        ts.map(t => `<tr><td>${t.id}</td><td>${tipos[t.tipo].nombre}</td><td>${t.detalle}</td><td>${t.solicitante}</td><td>${t.responsable}</td><td>${t.estado}</td><td>${t.vence.replace('T',' ')}</td>
+          <td><button class="chico" onclick="cambiar(${t.id},'EN_PROCESO')">En proceso</button>
+              <button class="chico" onclick="cambiar(${t.id},'ATENDIDO')">Atender</button>
+              <button class="chico" onclick="cambiar(${t.id},'RECHAZADO')">Rechazar</button></td></tr>`).join('')
+      : '<tr><td>Aún no tienes trámites. Registra uno arriba.</td></tr>';
+    const ds = await api('/api/destacados');
+    $('destacados').innerHTML = ds.length
+      ? '<tr><th>Trabajador</th><th>Trámites cerrados</th></tr>' + ds.map(d => `<tr><td>${d.nombre}</td><td>${d.cerrados}</td></tr>`).join('')
+      : '<tr><td>Todavía no hay trámites cerrados.</td></tr>';
+  }
+</script>
+</body>
+</html>
